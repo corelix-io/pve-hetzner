@@ -33,15 +33,20 @@ The Proxmox installer emits recognizable output to serial. Key patterns:
 - `Installation successful` -- done, QEMU will exit due to `-no-reboot`
 
 ### Monitor Socket Commands
+The monitor socket path includes the PID: `/tmp/qemu-monitor-$$.sock`.
+Find it with `ls /tmp/qemu-monitor-*.sock`.
+
 ```bash
+SOCK=$(ls /tmp/qemu-monitor-*.sock 2>/dev/null | head -1)
+
 # Check VM status
-echo "info status" | socat - UNIX-CONNECT:/tmp/qemu-mon.sock
+echo "info status" | socat - UNIX-CONNECT:$SOCK
 
 # Force quit
-echo "quit" | socat - UNIX-CONNECT:/tmp/qemu-mon.sock
+echo "quit" | socat - UNIX-CONNECT:$SOCK
 
 # Send key combination (e.g., Ctrl+Alt+Del)
-echo "sendkey ctrl-alt-delete" | socat - UNIX-CONNECT:/tmp/qemu-mon.sock
+echo "sendkey ctrl-alt-delete" | socat - UNIX-CONNECT:$SOCK
 ```
 
 ## answer.toml Best Practices

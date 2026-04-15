@@ -40,7 +40,7 @@ Hetzner support or try a different rescue OS version.
 
 **Fix:**
 1. Check serial log: `tail -f logs/qemu-install-serial.log`.
-2. Use QEMU monitor: `echo info status | socat - UNIX-CONNECT:/tmp/qemu-monitor.sock`.
+2. Use QEMU monitor: `echo info status | socat - UNIX-CONNECT:/tmp/qemu-monitor-*.sock` (find actual path with `ls /tmp/qemu-monitor-*.sock`).
 3. Kill and retry with more RAM: `kill $QEMU_PID`.
 
 ## ISO Download Fails

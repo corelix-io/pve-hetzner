@@ -109,6 +109,9 @@ answer_show_summary() {
     ui_kv "Network Mode" "$PVE_NETWORK_MODE"
     ui_kv "Public IP" "${PVE_MAIN_IPV4_CIDR:-auto}"
     ui_kv "Private Subnet" "${PVE_PRIVATE_SUBNET:-none}"
+    if [[ "$PVE_NETWORK_MODE" == "nat" ]]; then
+        ui_kv "DHCP (vmbr1)" "${PVE_ENABLE_DHCP}"
+    fi
     ui_kv "Boot Mode" "$PVE_BOOT_MODE"
     ui_kv "Interface" "${PVE_PREDICTED_IFACE:-${PVE_INTERFACE}}"
     if [[ -n "$PVE_SSH_KEYS" ]]; then

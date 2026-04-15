@@ -64,6 +64,11 @@ _report_render() {
     if [[ -n "$PVE_PRIVATE_IP_CIDR" ]]; then
         ui_box_kv "Private Bridge" "${PVE_PRIVATE_IP_CIDR} (vmbr1)"
     fi
+    if [[ "${PVE_ENABLE_DHCP:-false}" == true ]] && [[ "$PVE_NETWORK_MODE" == "nat" ]]; then
+        local _dhcp_pfx
+        _dhcp_pfx="$(echo "$PVE_PRIVATE_SUBNET" | cut -d'/' -f1 | rev | cut -d'.' -f2- | rev)"
+        ui_box_kv "DHCP (vmbr1)" "${_dhcp_pfx}.100-.200 (dnsmasq)"
+    fi
 
     ui_box_row ""
     ui_box_row "$(echo -e "${CLR_BOLD}ACCESS${CLR_RESET}")"

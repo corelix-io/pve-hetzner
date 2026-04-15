@@ -15,25 +15,27 @@ This attribution MUST be preserved in the banner, help text, reports, and README
 
 ```
 pve-install.sh          # Main entry point / orchestrator
+install.sh              # Bootstrap one-liner (downloads release bundle)
 lib/                    # Sourced bash library modules
   logging.sh            # Structured logging with levels and timestamps
-  ui.sh                 # Colors, spinners, progress bars, banners
+  ui.sh                 # Colors, spinners, progress bars, banners, ui_read
   config.sh             # CLI arg parsing, config file loading, defaults
   validate.sh           # Input validation (IP, FQDN, password, disk, etc.)
   cleanup.sh            # Trap handlers for EXIT/INT/TERM
   hardware.sh           # CPU, RAM, boot mode detection
-  disk.sh               # Disk discovery, selection, RAID validation
+  disk.sh               # Disk discovery, RAID selection, validation
   network.sh            # Interface detection, IP/gateway/MAC extraction
   iso.sh                # ISO download with checksum verification
   answer.sh             # answer.toml generation (Proxmox auto-install)
-  firstboot.sh          # First-boot script generation
+  firstboot.sh          # First-boot script generation (networking, SSH, tuning)
   qemu.sh               # QEMU launch with serial console + monitor
   ssh-config.sh         # Legacy SSH-based post-install config (fallback)
-  report.sh             # Final installation report
+  report.sh             # Final installation report with security advisory
 templates/              # Configuration file templates with {{PLACEHOLDER}} syntax
 configs/                # Example .env configuration files
 tests/                  # Validation and unit tests
 docs/                   # User-facing documentation
+.github/workflows/      # Release bundle CI
 ```
 
 ## Code Style
@@ -48,6 +50,15 @@ docs/                   # User-facing documentation
 - **No external downloads at runtime**: All templates ship in-repo under `templates/`.
 - **IPv4 only**: All `curl`/`wget` calls MUST use `-4` flag. Hetzner rescue has broken IPv6.
 - **apt IPv4**: Set `Acquire::ForceIPv4 "true"` before any apt operations.
+
+## Critical `set -e` Patterns
+
+These patterns cause silent script death under `set -e` and MUST be avoided:
+
+- **`(( var++ ))`** when var is 0: returns exit code 1. Use `var=$(( var + 1 ))` instead.
+- **`[[ cond ]] && action`** as last statement in a function: if false, function returns 1. Use `if/then/fi`.
+- **`cmd="$(func_that_sets_globals)"` subshell**: globals set inside `$()` are lost. Inline the logic.
+- **`read -e -i default`** via `/dev/tty`: readline hangs. Use `ui_read` wrapper from `lib/ui.sh`.
 
 ## Module Pattern
 
@@ -74,6 +85,8 @@ Available placeholders must be documented at the top of each `.tpl` file.
 - Use `netdata` (Hetzner tool) to query MAC address and link status.
 - IP/MAC binding is enforced -- bridged setups require virtual MACs from Robot Panel.
 - The gateway is always reachable at `fe80::1` for IPv6.
+- IPv6 is unreliable -- always force IPv4 for downloads.
+- `bc` is not available -- use pure bash arithmetic.
 
 ### Proxmox Auto-Install
 - Uses TOML-formatted `answer.toml` with kebab-case keys (PVE 8.4+).
@@ -81,19 +94,27 @@ Available placeholders must be documented at the top of each `.tpl` file.
 - First-boot hooks available since PVE 8.3 (`--on-first-boot` flag).
 - Disk names inside QEMU are `/dev/vdX` (virtio), not the host `/dev/nvmeXnY`.
 - The `[network] source = "from-dhcp"` works inside QEMU's user-mode networking.
+- Enterprise repos: both `pve-enterprise.sources` and `ceph.sources` must be disabled.
 
 ### QEMU in Rescue
 - Must pass physical disks as `-drive file=/dev/XXX,format=raw,if=virtio`.
 - Use `-serial file:LOG` for installer output capture.
-- Use `-monitor unix:SOCK,server,nowait` for programmatic control.
+- Monitor socket path includes PID: `/tmp/qemu-monitor-$$.sock`.
 - UEFI requires `-bios /usr/share/OVMF/OVMF_CODE.fd` (check path on rescue).
 - Resource allocation should be dynamic based on host hardware.
+- Build QEMU command in the same function scope as global variable assignments
+  (never use `$()` subshell for functions that set globals like `QEMU_SERIAL_LOG`).
+
+### SSH Hardening
+- `PermitRootLogin prohibit-password` -- safe for Proxmox clustering.
+- `PermitRootLogin no` -- BREAKS clustering. Never use.
+- SSH keys go to both `/root/.ssh/authorized_keys` and `/etc/pve/priv/authorized_keys`.
+- Use drop-in at `/etc/ssh/sshd_config.d/99-hardening.conf`, not main sshd_config.
 
 ## Testing
 
-- `tests/test-validate.sh` -- unit tests for validation functions.
-- `tests/test-config.sh` -- config parsing and default merging.
-- `tests/test-templates.sh` -- template rendering with known inputs.
+- `tests/test-validate.sh` -- unit tests for validation functions (45 tests).
+- `tests/test-config.sh` -- config parsing and default merging (12 tests).
 - Run all: `bash tests/run-all.sh`
 
 ## Commit Messages

@@ -32,14 +32,17 @@ This tool automates the installation of **Proxmox VE** on **Hetzner dedicated se
 - **One-liner install** -- download, extract, and run in a single command
 - **IPv4-only networking** -- avoids the IPv6 timeout issues in Hetzner rescue mode
 - **Dynamic hardware detection** -- auto-discovers disks, network interfaces, CPU, RAM, and boot mode
-- **Full QEMU observability** -- serial console output with real-time progress tracking (no more black-box installs)
-- **Unattended mode** -- configure via CLI arguments or `.env` files for automation pipelines
-- **First-boot hooks** -- network and system configuration applied on first boot (PVE 8.3+), eliminating fragile SSH-based post-install
-- **ISO verification** -- SHA256 checksum validation of downloaded ISOs
-- **Enterprise logging** -- structured log levels, timestamped entries, JSON reports
-- **Clean error handling** -- trap-based QEMU cleanup, input validation, graceful shutdown
+- **Interactive RAID selection** -- shows usable capacity and redundancy for each RAID level
+- **Full QEMU observability** -- serial console output with real-time progress tracking
+- **SSH hardening** -- auto-detects keys from rescue, disables password login (cluster-safe)
+- **DHCP on NAT bridge** -- VMs get automatic connectivity via dnsmasq on vmbr1
+- **First-boot hooks** -- all configuration applied on first boot (PVE 8.3+)
+- **Unattended mode** -- configure via CLI arguments or `.env` files
+- **ISO verification** -- SHA256 checksum validation
+- **Performance tuning** -- TCP BBR, swappiness, journald limits, pigz backups, ZFS ARC
+- **Enterprise logging** -- structured log levels, JSON reports
 - **Hetzner-aware networking** -- `predict-check` integration, NAT/routed/bridged support
-- **Self-contained bundle** -- no runtime downloads of templates or scripts (only the Proxmox ISO)
+- **Self-contained bundle** -- no runtime downloads of templates or scripts
 
 ### Compatible Servers
 
@@ -60,7 +63,7 @@ This tool automates the installation of **Proxmox VE** on **Hetzner dedicated se
 
 ### 2. Run the Installer
 
-**One-liner** (recommended -- downloads the latest release bundle):
+**One-liner** (recommended):
 
 ```bash
 curl -4fsSL https://github.com/corelix-io/pve-hetzner/releases/latest/download/install.sh | bash
@@ -74,19 +77,12 @@ curl -4fsSL https://github.com/corelix-io/pve-hetzner/releases/latest/download/i
     --timezone UTC --email admin@example.com --unattended --yes
 ```
 
-**Manual download** (if you prefer):
+**Manual download**:
 
 ```bash
 # Download latest release
-wget -4 https://github.com/corelix-io/pve-hetzner/releases/latest/download/pve-hetzner-v2.0.0.tar.gz
-tar xzf pve-hetzner-*.tar.gz
-cd pve-hetzner-*/
-
-# Interactive
-./pve-install.sh
-
-# Or with a config file
-./pve-install.sh --config configs/example-ax102.env --unattended --yes
+wget -4 https://github.com/corelix-io/pve-hetzner/releases/latest/download/install.sh -O install.sh
+bash install.sh
 ```
 
 ### 3. Access Proxmox
@@ -107,7 +103,7 @@ pve-install.sh                  Main orchestrator (11 phases)
 │   ├── validate.sh             Input validation
 │   ├── cleanup.sh              Trap handlers, process cleanup
 │   ├── hardware.sh             CPU, RAM, boot mode detection
-│   ├── disk.sh                 Disk discovery and RAID validation
+│   ├── disk.sh                 Disk discovery, RAID selection, validation
 │   ├── network.sh              Interface detection, IP extraction
 │   ├── iso.sh                  ISO download and verification
 │   ├── answer.sh               answer.toml generation
@@ -126,7 +122,7 @@ pve-install.sh                  Main orchestrator (11 phases)
 |-------|-------------|--------|
 | 1 | Preflight checks (root, rescue, KVM) | `hardware.sh` |
 | 2 | Hardware detection (CPU, RAM, boot mode) | `hardware.sh` |
-| 3 | Disk detection and selection | `disk.sh` |
+| 3 | Disk detection, selection, and RAID level choice | `disk.sh` |
 | 4 | Network interface detection | `network.sh` |
 | 5 | Configuration (interactive or unattended) | `config.sh` |
 | 6 | Input validation | `validate.sh` |
@@ -141,41 +137,71 @@ pve-install.sh                  Main orchestrator (11 phases)
 ### CLI Options
 
 ```
---hostname NAME        Hostname (e.g., pve1)
---fqdn FQDN           Fully qualified domain name
---password PASS        Root password
---email EMAIL          Admin notification email
---timezone TZ          Timezone (e.g., UTC, Europe/Berlin)
---private-subnet CIDR  NAT subnet (e.g., 192.168.26.0/24)
---interface NAME       Network interface override
---disk-mode MODE       auto or manual
---disks LIST           Comma-separated disk names
---filesystem FS        zfs, ext4, xfs, btrfs
---zfs-raid LEVEL       raid0, raid1, raid10, raidz-1/2/3
---zfs-compress ALG     lz4, zstd, on, off
---iso PATH             Skip download, use local ISO
---boot-mode MODE       auto, uefi, legacy
---network-mode MODE    nat, routed, bridged
---config FILE          Load .env configuration file
---unattended           No interactive prompts
---yes                  Skip confirmation
---debug                Enable debug logging
---help                 Show full help
+SYSTEM:
+  --hostname NAME        Hostname (e.g., pve1)
+  --fqdn FQDN           Fully qualified domain name
+  --password PASS        Root password
+  --email EMAIL          Admin notification email
+  --timezone TZ          Timezone (e.g., UTC, Europe/Berlin)
+  --keyboard LAYOUT      Keyboard layout (default: en-us)
+  --country CODE         Country code (default: us)
+  --ssh-keys "KEY..."    SSH public keys (enables key-only SSH)
+
+DISK:
+  --disk-mode MODE       auto or manual (default: auto)
+  --disks LIST           Comma-separated disk names (e.g., nvme0n1,nvme1n1)
+  --filesystem FS        zfs, ext4, xfs, btrfs (default: zfs)
+  --zfs-raid LEVEL       raid0, raid1, raid10, raidz-1/2/3 (default: raid1)
+  --zfs-compress ALG     lz4, zstd, on, off (default: lz4)
+  --zfs-ashift N         ZFS ashift value
+  --zfs-arc-max MiB      ZFS ARC max memory in MiB
+
+NETWORK:
+  --interface NAME       Network interface override
+  --private-subnet CIDR  NAT subnet (e.g., 192.168.26.0/24)
+  --network-mode MODE    nat, routed, bridged (default: nat)
+  --dhcp                 Enable DHCP server on NAT bridge (default)
+  --no-dhcp              Disable DHCP server on NAT bridge
+  --dns SERVERS          DNS servers (space-separated)
+
+INSTALL:
+  --iso PATH             Skip download, use local ISO
+  --boot-mode MODE       auto, uefi, legacy (default: auto)
+  --debian-suite SUITE   Debian suite (default: trixie)
+  --config FILE          Load .env configuration file
+  --unattended           No interactive prompts
+  --yes, -y              Skip confirmation prompts
+  --debug                Enable debug logging
+  --quiet                Suppress info-level output
+  --help, -h             Show help
+  --version, -v          Show version
 ```
 
-### Configuration File Format
+### Configuration File
 
 Create a `.env` file (see `configs/` for examples):
 
 ```bash
+# System
 PVE_HOSTNAME="pve1"
 PVE_FQDN="pve1.example.com"
 PVE_ROOT_PASSWORD="secure-password"
 PVE_TIMEZONE="UTC"
 PVE_EMAIL="admin@example.com"
+PVE_KEYBOARD="en-us"
+PVE_COUNTRY="us"
+PVE_SSH_KEYS="ssh-ed25519 AAAA... user@host"
+
+# Disk
 PVE_FILESYSTEM="zfs"
 PVE_ZFS_RAID="raid1"
+PVE_ZFS_COMPRESS="lz4"
+
+# Network
 PVE_PRIVATE_SUBNET="192.168.26.0/24"
+PVE_NETWORK_MODE="nat"
+PVE_ENABLE_DHCP=true
+PVE_DNS_SERVERS="185.12.64.1 185.12.64.2"
 ```
 
 ### Precedence
@@ -187,67 +213,72 @@ Configuration values are merged in this order (last wins):
 3. CLI arguments
 4. Interactive prompts
 
-## IPv4-Only Networking
+## What Gets Configured
 
-Hetzner's rescue system has unreliable IPv6 connectivity, which causes tools like `curl`, `wget`, and `apt` to attempt IPv6 first with long timeouts before falling back to IPv4. This installer forces IPv4 for all network operations:
+The installer's first-boot script applies these configurations automatically:
 
-- `curl -4` and `wget -4` for all HTTP requests
-- `Acquire::ForceIPv4 "true"` for apt package manager
-- The release bundle is self-contained, so template files are never fetched at runtime
+### Networking
+- **vmbr0**: Public bridge with server's main IP (bridged to physical NIC)
+- **vmbr1**: Private NAT bridge for VMs/containers with MASQUERADE
+- **DHCP**: dnsmasq on vmbr1 (`.100-.200` range) so VMs get IPs automatically
+- **IPv6**: Configured on both bridges when available
+
+### SSH Security
+When SSH keys are provided (auto-detected from rescue or manually entered):
+- Keys installed to `/root/.ssh/authorized_keys` and `/etc/pve/priv/authorized_keys` (cluster-synced)
+- `PermitRootLogin prohibit-password` (safe for Proxmox clustering)
+- `PasswordAuthentication no`
+- Drop-in config at `/etc/ssh/sshd_config.d/99-hardening.conf`
+
+### Performance Tuning
+- **TCP BBR** congestion control (better throughput on fast links)
+- **TCP Fast Open** (reduced connection latency)
+- **Swappiness = 10** (prevents aggressive swapping on hypervisors)
+- **Kernel panic auto-reboot** after 10s (critical for unattended servers)
+- **inotify watches** increased to 1M (fixes "no space left" with many containers)
+- **Journald** limited to 64MB (prevents log bloat)
+- **ZFS ARC** tuned dynamically based on RAM (5% min, 15% max)
+- **nf_conntrack** tuned for NAT (1M max entries, 8h timeout)
+- **pigz** installed for 2-4x faster vzdump backups
+- **vzdump** bandwidth limit removed, IO priority set
+
+### APT Repositories
+- All enterprise repos disabled (PVE + Ceph, both `.list` and `.sources` formats)
+- No-subscription repos added for PVE and Ceph
+- Subscription nag removed with daily cron to persist across updates
 
 ## QEMU Observability
 
-Unlike other installers that run QEMU as a black box, this tool provides full visibility:
-
-- **Serial console**: Proxmox installer output is captured to `logs/qemu-install-serial.log`
-- **Progress tracking**: Real-time phase detection (filesystem creation, package installation, etc.)
+- **Serial console**: Installer output captured to `logs/qemu-install-serial.log`
+- **Progress tracking**: Real-time phase detection
 - **Monitor socket**: Programmatic QEMU control via `socat`
-- **Timeout protection**: Auto-kills hung installations after 20 minutes
+- **Timeout protection**: Auto-kills after 20 minutes
 - **Failure diagnostics**: Last 20 lines of serial output shown on error
 
-## Network Configuration
+## Post-Installation Security
 
-The installer supports three networking modes for Hetzner:
+After reboot, **configure IP filtering before going to production**:
 
-### NAT/Masquerading (Default)
-- `vmbr0`: Public bridge with server's main IP
-- `vmbr1`: Private NAT bridge for VMs/containers
-- Best for single-IP servers, no additional IPs needed
+### Hetzner Robot Firewall (recommended)
+1. Go to `robot.hetzner.com` > Server > Firewall
+2. Create rules to ALLOW ports 22, 8006 only from your management IP(s)
+3. Set default incoming policy to DROP
+4. Apply the firewall to your server
 
-### Routed
-- Direct routing with `/32` addresses per VM
-- Requires additional IPs from Hetzner
-
-### Bridged
-- Transparent bridge mode
-- Requires virtual MAC addresses from Hetzner Robot Panel
-
-## Post-Installation
-
-After rebooting into Proxmox:
-
-```bash
-# Update system
-apt update && apt -y upgrade
-
-# Install useful tools
-apt install -y curl libguestfs-tools unzip iptables-persistent net-tools
-
-# Configure ZFS memory limits (recommended for 64GB+ RAM)
-echo "options zfs zfs_arc_min=$[6 * 1024*1024*1024]" >> /etc/modprobe.d/99-zfs.conf
-echo "options zfs zfs_arc_max=$[12 * 1024*1024*1024]" >> /etc/modprobe.d/99-zfs.conf
-update-initramfs -u
-```
+### Proxmox Built-in Firewall (additional layer)
+1. Datacenter > Firewall > Add rules for SSH/HTTPS
+2. Enable at Datacenter + Node level
 
 ## Troubleshooting
 
 See [TROUBLESHOOTING.md](.claude/docs/TROUBLESHOOTING.md) for common issues:
 
 - Server unreachable after reboot
-- QEMU fails to start
-- Installation hangs
+- Locked out after SSH hardening
+- QEMU fails to start or hangs
 - ZFS pool not created
 - Wrong boot mode
+- Hetzner firewall not blocking traffic
 
 ## Documentation
 

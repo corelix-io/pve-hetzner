@@ -31,6 +31,7 @@ declare -g PVE_LOG_LEVEL=1
 declare -g PVE_WORKING_DIR="/root"
 declare -g PVE_DEBIAN_SUITE="trixie"
 declare -g PVE_NETWORK_MODE="nat"  # nat, routed, bridged
+declare -g PVE_ENABLE_DHCP=true    # dnsmasq DHCP on vmbr1 (NAT mode only)
 
 # Derived values (populated during detection/config)
 declare -g PVE_MAIN_IPV4=""
@@ -94,6 +95,7 @@ config_load_file() {
             PVE_BOOT_MODE)      PVE_BOOT_MODE="$value" ;;
             PVE_DNS_SERVERS)    PVE_DNS_SERVERS="$value" ;;
             PVE_NETWORK_MODE)   PVE_NETWORK_MODE="$value" ;;
+            PVE_ENABLE_DHCP)    PVE_ENABLE_DHCP="$value" ;;
             PVE_DEBIAN_SUITE)   PVE_DEBIAN_SUITE="$value" ;;
             PVE_LOG_LEVEL)      PVE_LOG_LEVEL="$value"; LOG_LEVEL="$value" ;;
             *)                  log_debug "Unknown config key: ${key}" ;;
@@ -125,6 +127,8 @@ config_parse_args() {
             --boot-mode)      PVE_BOOT_MODE="$2"; shift 2 ;;
             --dns)            PVE_DNS_SERVERS="$2"; shift 2 ;;
             --network-mode)   PVE_NETWORK_MODE="$2"; shift 2 ;;
+            --dhcp)           PVE_ENABLE_DHCP=true; shift ;;
+            --no-dhcp)        PVE_ENABLE_DHCP=false; shift ;;
             --debian-suite)   PVE_DEBIAN_SUITE="$2"; shift 2 ;;
             --config)         PVE_CONFIG_FILE="$2"; shift 2 ;;
             --unattended)     PVE_UNATTENDED=true; shift ;;
@@ -159,7 +163,7 @@ OPTIONS:
   --interface NAME       Network interface to use
   --disk-mode MODE       Disk selection: auto, manual (default: auto)
   --disks LIST           Comma-separated disk list (e.g., nvme0n1,nvme1n1)
-  --filesystem FS        Filesystem: zfs, ext4, xfs (default: zfs)
+  --filesystem FS        Filesystem: zfs, ext4, xfs, btrfs (default: zfs)
   --zfs-raid LEVEL       ZFS RAID: raid0, raid1, raid10, raidz-1/2/3
   --zfs-compress ALG     ZFS compression: lz4, zstd, on, off
   --zfs-ashift N         ZFS ashift value
@@ -170,6 +174,8 @@ OPTIONS:
   --boot-mode MODE       Boot mode: auto, uefi, legacy
   --dns SERVERS          DNS servers (space-separated)
   --network-mode MODE    Network: nat, routed, bridged (default: nat)
+  --dhcp                 Enable DHCP server on NAT bridge (default)
+  --no-dhcp              Disable DHCP server on NAT bridge
   --config FILE          Load configuration from .env file
   --unattended           Run without interactive prompts
   --yes, -y              Skip confirmation prompts
@@ -236,6 +242,18 @@ config_interactive() {
 
     if [[ -z "$PVE_PRIVATE_SUBNET" ]]; then
         ui_read PVE_PRIVATE_SUBNET "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Private subnet: ")" "192.168.26.0/24"
+    fi
+
+    if [[ "$PVE_NETWORK_MODE" == "nat" ]]; then
+        echo ""
+        echo -e "  ${CLR_DIM}VMs on the NAT bridge (vmbr1) need IP addresses.${CLR_RESET}"
+        echo -e "  ${CLR_DIM}A DHCP server (dnsmasq) gives VMs automatic connectivity.${CLR_RESET}"
+        if ui_confirm "Enable DHCP server on the NAT bridge?" "y"; then
+            PVE_ENABLE_DHCP=true
+        else
+            PVE_ENABLE_DHCP=false
+            ui_warn "VMs will need manual static IP configuration"
+        fi
     fi
 
     while [[ -z "$PVE_ROOT_PASSWORD" ]]; do

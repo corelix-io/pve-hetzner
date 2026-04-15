@@ -13,7 +13,15 @@ blocking.
 
 ## Network Topologies
 
-### Routed Setup (Recommended for single-IP servers)
+### NAT/Masquerading (Default -- this installer's default mode)
+- `vmbr0` gets the public IP, bridged to the physical NIC.
+- `vmbr1` bridge with private subnet (e.g., `192.168.26.0/24`).
+- iptables MASQUERADE rule on `vmbr1` for outbound NAT.
+- dnsmasq DHCP server on `vmbr1` (`.100-.200` range) gives VMs automatic IPs.
+- Optional DNAT/PREROUTING for inbound port forwarding.
+- Best for single-IP servers, no additional IPs needed.
+
+### Routed Setup
 - Physical interface gets the main IP with `/32` mask.
 - `vmbr0` bridge has `bridge-ports none` and serves as gateway for VMs.
 - Additional IPs require explicit `ip route add` on the bridge.
@@ -24,12 +32,6 @@ blocking.
 - `vmbr0` bridge has `bridge-ports <physical-iface>`.
 - VMs get their own public IPs with virtual MAC addresses.
 - DHCP can be used if virtual MAC is configured.
-
-### NAT/Masquerading (Default for this installer)
-- Physical interface or `vmbr0` gets the public IP.
-- `vmbr1` bridge with private subnet (e.g., `192.168.26.0/24`).
-- iptables MASQUERADE rule on `vmbr1` for outbound traffic.
-- Optional DNAT/PREROUTING for inbound port forwarding.
 
 ## Interface Naming
 

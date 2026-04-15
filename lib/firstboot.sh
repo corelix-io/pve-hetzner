@@ -86,6 +86,53 @@ echo "[$(date)] Sysctl configured"
 
 FBSYSCTL
 
+    # --- Performance & Reliability Tuning ---
+    cat >> "$output_file" <<'FBPERF'
+# --- TCP BBR Congestion Control ---
+cat > /etc/sysctl.d/99-tcp-bbr.conf <<'BBR_EOF'
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+BBR_EOF
+
+# --- TCP Fast Open ---
+cat > /etc/sysctl.d/99-tcp-fastopen.conf <<'TFO_EOF'
+net.ipv4.tcp_fastopen=3
+TFO_EOF
+
+# --- Reduce Swappiness (hypervisors should not swap aggressively) ---
+cat > /etc/sysctl.d/99-swap.conf <<'SWAP_EOF'
+vm.swappiness=10
+SWAP_EOF
+
+# --- Kernel Panic Auto-Reboot (critical for unattended servers) ---
+cat > /etc/sysctl.d/99-kernel-panic.conf <<'PANIC_EOF'
+kernel.panic=10
+kernel.panic_on_oops=1
+PANIC_EOF
+
+# --- Increase inotify Watches (prevents "no space left" with many containers) ---
+cat > /etc/sysctl.d/99-inotify.conf <<'INOT_EOF'
+fs.inotify.max_user_watches=1048576
+fs.inotify.max_user_instances=1048576
+fs.inotify.max_queued_events=1048576
+INOT_EOF
+
+# Apply all sysctl tweaks
+sysctl --system >/dev/null 2>&1 || true
+echo "[$(date)] Performance tuning applied (BBR, fastopen, swappiness, panic, inotify)"
+
+# --- Journald Size Limit (prevent unbounded log growth) ---
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/99-size-limit.conf <<'JOURNAL_EOF'
+[Journal]
+SystemMaxUse=64M
+RuntimeMaxUse=64M
+JOURNAL_EOF
+systemctl restart systemd-journald 2>/dev/null || true
+echo "[$(date)] Journald limited to 64M"
+
+FBPERF
+
     # ZFS ARC tuning (only for ZFS installs)
     if [[ "$PVE_FILESYSTEM" == "zfs" ]]; then
         # Calculate ARC limits based on total RAM:
@@ -189,6 +236,42 @@ echo "[$(date)] Unnecessary services disabled"
 
 FBSERVICES
 
+    # --- DHCP Server on vmbr1 (NAT mode only) ---
+    if [[ "$PVE_NETWORK_MODE" == "nat" ]] && [[ "$PVE_ENABLE_DHCP" == true ]]; then
+        local dhcp_prefix
+        dhcp_prefix="$(echo "$PVE_PRIVATE_SUBNET" | cut -d'/' -f1 | rev | cut -d'.' -f2- | rev)"
+        local dhcp_start="${dhcp_prefix}.100"
+        local dhcp_end="${dhcp_prefix}.200"
+        local dhcp_gw="${dhcp_prefix}.1"
+
+        cat >> "$output_file" <<FBDHCP
+# --- DHCP Server (dnsmasq) on vmbr1 ---
+apt-get update -qq >/dev/null 2>&1
+DEBIAN_FRONTEND=noninteractive apt-get install -yq dnsmasq >/dev/null 2>&1
+
+# Prevent dnsmasq from interfering with system DNS on port 53
+cat > /etc/dnsmasq.d/00-base.conf <<'DNSMASQ_BASE_EOF'
+# Only listen on vmbr1, not on all interfaces
+bind-interfaces
+except-interface=lo
+except-interface=vmbr0
+DNSMASQ_BASE_EOF
+
+cat > /etc/dnsmasq.d/vmbr1-dhcp.conf <<'DNSMASQ_EOF'
+# DHCP server for NAT bridge (vmbr1)
+interface=vmbr1
+dhcp-range=${dhcp_start},${dhcp_end},255.255.255.0,12h
+dhcp-option=3,${dhcp_gw}
+dhcp-option=6,${PVE_DNS_SERVERS// /,}
+DNSMASQ_EOF
+
+systemctl enable dnsmasq
+systemctl restart dnsmasq 2>/dev/null || true
+echo "[\$(date)] DHCP server configured on vmbr1 (${dhcp_start}-${dhcp_end})"
+
+FBDHCP
+    fi
+
     cat >> "$output_file" <<'FBSUB'
 # --- Remove Subscription Nag ---
 PROXMOXLIB="/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
@@ -197,7 +280,18 @@ if [ -f "$PROXMOXLIB" ]; then
         "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid sub)/void\(\{ \/\/\1/g" \
         "$PROXMOXLIB"
     systemctl restart pveproxy.service 2>/dev/null || true
-    echo "[$(date)] Subscription notice removed"
+
+    # Create a daily cron so the nag stays removed after apt upgrades
+    cat > /etc/cron.daily/pve-nosub <<'CRON_EOF'
+#!/bin/sh
+PROXMOXLIB="/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
+[ -f "$PROXMOXLIB" ] && sed -Ezi \
+    "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid sub)/void\(\{ \/\/\1/g" \
+    "$PROXMOXLIB"
+CRON_EOF
+    chmod 755 /etc/cron.daily/pve-nosub
+
+    echo "[$(date)] Subscription notice removed (+ daily cron to persist)"
 fi
 
 FBSUB
@@ -255,6 +349,18 @@ echo "[$(date)] SSH hardening skipped (no keys provided)"
 
 FBSSH_SKIP
     fi
+
+    cat >> "$output_file" <<'FBBACKUP'
+# --- Vzdump Backup Speed + Pigz ---
+if [ -f /etc/vzdump.conf ]; then
+    sed -i "s/#bwlimit:.*/bwlimit: 0/" /etc/vzdump.conf
+    sed -i "s/#ionice:.*/ionice: 5/" /etc/vzdump.conf
+    sed -i "s/#pigz:.*/pigz: 1/" /etc/vzdump.conf
+fi
+DEBIAN_FRONTEND=noninteractive apt-get install -yq pigz >/dev/null 2>&1 || true
+echo "[$(date)] Backup speed optimized (pigz, no bwlimit)"
+
+FBBACKUP
 
     cat >> "$output_file" <<'FBDONE'
 echo "[$(date)] First-boot configuration complete!"

@@ -7,14 +7,14 @@ The installer runs in 11 sequential phases, each handled by a dedicated library 
 ```
 Phase  1: Preflight Checks      (hardware.sh)   -- root, rescue mode, KVM
 Phase  2: Hardware Detection     (hardware.sh)   -- CPU, RAM, boot mode
-Phase  3: Disk Detection         (disk.sh)       -- enumerate, select, validate RAID
+Phase  3: Disk & RAID            (disk.sh)       -- enumerate, select, choose RAID level
 Phase  4: Network Detection      (network.sh)    -- interfaces, IPs, predicted names
-Phase  5: Configuration          (config.sh)     -- interactive prompts or CLI/file
+Phase  5: Configuration          (config.sh)     -- hostname, FQDN, subnet, DHCP, SSH keys
 Phase  6: Validation             (validate.sh)   -- verify all inputs
 Phase  7: Dependencies           (iso.sh)        -- apt install required packages
 Phase  8: ISO Acquisition        (iso.sh)        -- download + verify checksum
-Phase  9: Config Generation      (answer.sh,     -- answer.toml, first-boot.sh,
-                                  firstboot.sh)     network templates
+Phase  9: Config Generation      (answer.sh,     -- answer.toml, first-boot.sh
+                                  firstboot.sh)     (networking, SSH, DHCP, tuning)
 Phase 10: Installation           (qemu.sh)       -- QEMU with serial console
 Phase 11: Report                 (report.sh)     -- summary + next steps
 ```
