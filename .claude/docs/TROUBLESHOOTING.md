@@ -105,6 +105,34 @@ sed -Ezi.bak \
 systemctl restart pveproxy.service
 ```
 
+## Locked Out After SSH Hardening
+
+**Symptom:** Cannot SSH into the server after reboot. `Permission denied (publickey)`.
+
+**Cause:** SSH password authentication was disabled but your key is missing or
+incorrect on the server.
+
+**Fix:**
+1. Reboot into Hetzner rescue mode (Robot Panel > Rescue > Reset).
+2. Mount the root filesystem:
+   - ZFS: `zpool import -f rpool && mount -t zfs rpool/ROOT/pve-1 /mnt`
+   - ext4: `mount /dev/sda2 /mnt`
+3. Add your public key:
+```bash
+mkdir -p /mnt/root/.ssh
+echo "ssh-ed25519 AAAA... you@host" >> /mnt/root/.ssh/authorized_keys
+chmod 600 /mnt/root/.ssh/authorized_keys
+```
+4. Or re-enable password login temporarily:
+```bash
+sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' \
+    /mnt/etc/ssh/sshd_config.d/99-hardening.conf
+```
+5. Unmount and reboot: `umount /mnt && reboot` (or `zpool export rpool && reboot`).
+
+**Prevention:** Always verify your SSH key works from a second terminal
+before closing your current session after hardening SSH.
+
 ## IPv6 Not Working
 
 **Symptom:** IPv6 addresses assigned but no connectivity.
@@ -115,3 +143,17 @@ systemctl restart pveproxy.service
 1. Ensure `net.ipv6.conf.all.forwarding=1` in sysctl.
 2. Hetzner IPv6 gateway is always `fe80::1`.
 3. Use `/128` on the main interface, `/64` on the bridge.
+
+## Hetzner Firewall Not Blocking Traffic
+
+**Symptom:** Ports 22 and 8006 are accessible from any IP despite setting up rules.
+
+**Cause:** Hetzner Robot firewall is not applied, or rules are misconfigured.
+
+**Fix:**
+1. Go to Robot Panel > Server > Firewall.
+2. Verify the firewall is **activated** (green toggle).
+3. Ensure default incoming policy is **DROP** (not ACCEPT).
+4. Rules should explicitly ALLOW ports 22, 8006 only from your management IPs.
+5. The Hetzner firewall operates at the network edge -- it filters before traffic
+   reaches your server. This is the most effective layer for Hetzner deployments.

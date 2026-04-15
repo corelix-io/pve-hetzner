@@ -70,15 +70,37 @@ _report_render() {
     ui_box_row "$(echo -e "  ${CLR_DIM}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${CLR_RESET}")"
     ui_box_kv "Web UI" "https://${ip_bare}:8006"
     ui_box_kv "SSH" "ssh root@${ip_bare}"
+    if [[ -n "$PVE_SSH_KEYS" ]]; then
+        ui_box_kv "SSH Auth" "key-only (password disabled)"
+    else
+        ui_box_kv "SSH Auth" "$(echo -e "${CLR_YELLOW}password (not hardened)${CLR_RESET}")"
+    fi
+
+    ui_box_row ""
+    ui_box_row "$(echo -e "${CLR_RED}${CLR_BOLD}SECURITY -- ACTION REQUIRED${CLR_RESET}")"
+    ui_box_row "$(echo -e "  ${CLR_DIM}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${CLR_RESET}")"
+    ui_box_row "$(echo -e "  ${CLR_RED}Ports 22 (SSH) and 8006 (Web UI) are exposed!${CLR_RESET}")"
+    ui_box_row "  Set up IP filtering BEFORE going to production:"
+    ui_box_row ""
+    ui_box_row "$(echo -e "  ${CLR_BOLD}Hetzner Robot Firewall (recommended):${CLR_RESET}")"
+    ui_box_row "    1. Go to robot.hetzner.com > Server > Firewall"
+    ui_box_row "    2. Create rules to ALLOW ports 22, 8006"
+    ui_box_row "       ONLY from your management IP(s)"
+    ui_box_row "    3. Set default policy to DROP"
+    ui_box_row "    4. Apply the firewall to your server"
+    ui_box_row ""
+    ui_box_row "$(echo -e "  ${CLR_BOLD}Proxmox built-in firewall (additional layer):${CLR_RESET}")"
+    ui_box_row "    Datacenter > Firewall > Add rules for SSH/HTTPS"
+    ui_box_row "    Enable at Datacenter + Node level"
 
     ui_box_row ""
     ui_box_row "$(echo -e "${CLR_BOLD}NEXT STEPS${CLR_RESET}")"
     ui_box_row "$(echo -e "  ${CLR_DIM}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${CLR_RESET}")"
     ui_box_row "  1. Reboot to exit rescue mode"
-    ui_box_row "  2. Access web UI and login as root"
-    ui_box_row "  3. Verify network: ip addr, ip route"
-    ui_box_row "  4. Check ZFS: zpool status"
-    ui_box_row "  5. Configure firewall rules"
+    ui_box_row "  2. Configure Hetzner firewall (see above)"
+    ui_box_row "  3. Access web UI and login as root"
+    ui_box_row "  4. Verify: ip addr, zpool status"
+    ui_box_row "  5. Enable Proxmox firewall"
     ui_box_row "  6. Set up backup schedule"
 
     if [[ -n "$LOG_FILE" ]]; then

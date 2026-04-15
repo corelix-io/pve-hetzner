@@ -106,9 +106,18 @@ sshcfg_upload_files() {
 sshcfg_run_commands() {
     ui_spinner_start "Applying remote configuration"
 
-    # Move enterprise list out of the way
-    _sshcfg_ssh "[ -f /etc/apt/sources.list.d/pve-enterprise.list ] && \
-        mv /etc/apt/sources.list.d/pve-enterprise.list /etc/apt/sources.list.d/pve-enterprise.list.disabled" \
+    # Disable all enterprise repos (PVE + Ceph)
+    _sshcfg_ssh 'for f in /etc/apt/sources.list.d/pve-enterprise.list /etc/apt/sources.list.d/ceph.list; do \
+        [ -f "$f" ] && mv "$f" "${f}.disabled"; done; \
+        for f in /etc/apt/sources.list.d/*enterprise*.sources /etc/apt/sources.list.d/*enterprise*.list; do \
+        [ -f "$f" ] && [ "${f}" = "${f%.disabled}" ] && mv "$f" "${f}.disabled"; done' \
+        2>/dev/null || true
+
+    # Add no-subscription repos
+    _sshcfg_ssh "echo 'deb http://download.proxmox.com/debian/pve ${PVE_DEBIAN_SUITE} pve-no-subscription' \
+        > /etc/apt/sources.list.d/pve-no-subscription.list && \
+        echo 'deb http://download.proxmox.com/debian/ceph-squid ${PVE_DEBIAN_SUITE} no-subscription' \
+        > /etc/apt/sources.list.d/ceph-no-subscription.list" \
         2>/dev/null || true
 
     # Backup and clear sources.list

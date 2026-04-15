@@ -245,7 +245,77 @@ config_interactive() {
         fi
     done
 
+    # SSH key setup
+    if [[ -z "$PVE_SSH_KEYS" ]]; then
+        _config_detect_ssh_keys
+    fi
+
     config_derive_values
+}
+
+# Auto-detect SSH public keys from the rescue system and prompt user
+_config_detect_ssh_keys() {
+    local detected_keys=""
+
+    # Check common locations for existing authorized keys
+    for keyfile in /root/.ssh/authorized_keys /root/.ssh/id_*.pub; do
+        if [[ -f "$keyfile" ]]; then
+            while IFS= read -r line; do
+                [[ -z "$line" || "$line" =~ ^# ]] && continue
+                if [[ "$line" =~ ^ssh-(rsa|ed25519|ecdsa) ]] || [[ "$line" =~ ^ecdsa-sha2 ]]; then
+                    if [[ -z "$detected_keys" ]]; then
+                        detected_keys="$line"
+                    else
+                        detected_keys="${detected_keys}"$'\n'"${line}"
+                    fi
+                fi
+            done < "$keyfile"
+        fi
+    done
+
+    echo ""
+    ui_section "SSH Security"
+
+    if [[ -n "$detected_keys" ]]; then
+        local key_count
+        key_count="$(echo "$detected_keys" | wc -l)"
+        ui_success "Found ${key_count} SSH public key(s) from rescue system"
+
+        echo "$detected_keys" | while IFS= read -r k; do
+            local key_type key_comment
+            key_type="$(echo "$k" | awk '{print $1}')"
+            key_comment="$(echo "$k" | awk '{print $NF}')"
+            ui_detail "${key_type} ...${key_comment}"
+        done
+        echo ""
+
+        if ui_confirm "Use these keys for Proxmox root access and harden SSH (disable password login)?"; then
+            PVE_SSH_KEYS="$detected_keys"
+            ui_success "SSH keys will be installed and password login disabled"
+        else
+            ui_warn "SSH password login will remain enabled (less secure)"
+        fi
+    else
+        ui_warn "No SSH public keys detected in rescue system"
+        echo ""
+        echo -e "  ${CLR_DIM}To enable key-only SSH (recommended), provide your public key.${CLR_RESET}"
+        echo -e "  ${CLR_DIM}Paste it below, or press Enter to skip.${CLR_RESET}"
+        echo ""
+
+        local manual_key=""
+        ui_read manual_key "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} SSH public key (or Enter to skip): ")" ""
+
+        if [[ -n "$manual_key" ]] && [[ "$manual_key" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
+            PVE_SSH_KEYS="$manual_key"
+            ui_success "SSH key accepted -- password login will be disabled"
+        else
+            if [[ -n "$manual_key" ]]; then
+                ui_warn "Invalid key format (must start with ssh-rsa, ssh-ed25519, etc.)"
+            fi
+            ui_warn "No SSH keys configured -- password login will remain enabled"
+            echo -e "  ${CLR_DIM}You can harden SSH later: see docs/TROUBLESHOOTING.md${CLR_RESET}"
+        fi
+    fi
 }
 
 # Calculate derived values from user inputs

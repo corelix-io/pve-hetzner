@@ -28,6 +28,13 @@ firstboot_generate() {
     local sysctl_content="net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1"
 
+    # Add conntrack tuning for NAT setups (prevents exhaustion with many VMs)
+    if [[ "$PVE_NETWORK_MODE" == "nat" ]]; then
+        sysctl_content+="
+net.netfilter.nf_conntrack_max=1048576
+net.netfilter.nf_conntrack_tcp_timeout_established=28800"
+    fi
+
     cat > "$output_file" <<'FBHEADER'
 #!/bin/bash
 # Proxmox VE First-Boot Configuration Script
@@ -79,18 +86,94 @@ echo "[$(date)] Sysctl configured"
 
 FBSYSCTL
 
-    cat >> "$output_file" <<'FBAPT'
-# --- APT Sources ---
-# Remove enterprise subscription repo if present
-if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
-    mv /etc/apt/sources.list.d/pve-enterprise.list /etc/apt/sources.list.d/pve-enterprise.list.disabled
+    # ZFS ARC tuning (only for ZFS installs)
+    if [[ "$PVE_FILESYSTEM" == "zfs" ]]; then
+        # Calculate ARC limits based on total RAM:
+        # arc_min = ~5% of RAM (floor for cache, prevents thrashing)
+        # arc_max = ~15% of RAM (generous but leaves room for VMs)
+        # Uses PVE_ZFS_ARC_MAX from config if explicitly set
+        local total_ram_gb=$(( PVE_QEMU_RAM_MB / 1024 * 4 / 3 ))  # approximate host RAM from QEMU alloc
+        if [[ -f /proc/meminfo ]]; then
+            local total_kb
+            total_kb="$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')"
+            total_ram_gb=$(( total_kb / 1024 / 1024 ))
+        fi
+
+        local arc_min_gb=$(( total_ram_gb * 5 / 100 ))
+        local arc_max_gb=$(( total_ram_gb * 15 / 100 ))
+        # Enforce sane minimums
+        if (( arc_min_gb < 1 )); then arc_min_gb=1; fi
+        if (( arc_max_gb < 2 )); then arc_max_gb=2; fi
+        # Use explicit override if provided
+        if [[ -n "$PVE_ZFS_ARC_MAX" ]]; then
+            arc_max_gb=$(( PVE_ZFS_ARC_MAX / 1024 ))
+        fi
+
+        local arc_min_bytes=$(( arc_min_gb * 1024 * 1024 * 1024 ))
+        local arc_max_bytes=$(( arc_max_gb * 1024 * 1024 * 1024 ))
+
+        cat >> "$output_file" <<FBZFS
+# --- ZFS ARC Memory Tuning ---
+# Host RAM: ~${total_ram_gb} GB -> ARC min: ${arc_min_gb} GB, max: ${arc_max_gb} GB
+rm -f /etc/modprobe.d/zfs.conf
+cat > /etc/modprobe.d/99-zfs.conf <<'ZFS_EOF'
+options zfs zfs_arc_min=${arc_min_bytes}
+options zfs zfs_arc_max=${arc_max_bytes}
+ZFS_EOF
+update-initramfs -u -k all >/dev/null 2>&1 || true
+echo "[\$(date)] ZFS ARC tuned: min=${arc_min_gb}GB max=${arc_max_gb}GB"
+
+FBZFS
+    fi
+
+    # nf_conntrack module for NAT
+    if [[ "$PVE_NETWORK_MODE" == "nat" ]]; then
+        cat >> "$output_file" <<'FBCONNTRACK'
+# --- Conntrack Module ---
+if ! grep -q '^nf_conntrack$' /etc/modules 2>/dev/null; then
+    echo "nf_conntrack" >> /etc/modules
 fi
+modprobe nf_conntrack 2>/dev/null || true
+echo "[$(date)] nf_conntrack module configured"
+
+FBCONNTRACK
+    fi
+
+    cat >> "$output_file" <<FBAPT
+# --- APT Sources ---
+# Disable ALL enterprise repos (require paid subscription)
+for f in /etc/apt/sources.list.d/pve-enterprise.list \
+         /etc/apt/sources.list.d/ceph.list; do
+    if [ -f "\$f" ]; then
+        mv "\$f" "\${f}.disabled"
+        echo "[\$(date)] Disabled enterprise repo: \$f"
+    fi
+done
+
+# Also handle .sources format (DEB822) enterprise files
+for f in /etc/apt/sources.list.d/*enterprise*.sources \
+         /etc/apt/sources.list.d/*enterprise*.list; do
+    if [ -f "\$f" ] && [ "\${f}" = "\${f%.disabled}" ]; then
+        mv "\$f" "\${f}.disabled"
+        echo "[\$(date)] Disabled enterprise repo: \$f"
+    fi
+done
 
 # Backup original sources.list if it exists
 if [ -f /etc/apt/sources.list ] && [ -s /etc/apt/sources.list ]; then
     mv /etc/apt/sources.list /etc/apt/sources.list.bak
 fi
-echo "[$(date)] APT sources configured"
+
+# Add Proxmox no-subscription repos (PVE + Ceph)
+cat > /etc/apt/sources.list.d/pve-no-subscription.list <<'PVEREPO_EOF'
+deb http://download.proxmox.com/debian/pve ${PVE_DEBIAN_SUITE} pve-no-subscription
+PVEREPO_EOF
+
+cat > /etc/apt/sources.list.d/ceph-no-subscription.list <<'CEPHREPO_EOF'
+deb http://download.proxmox.com/debian/ceph-squid ${PVE_DEBIAN_SUITE} no-subscription
+CEPHREPO_EOF
+
+echo "[\$(date)] APT sources configured (no-subscription repos for PVE + Ceph)"
 
 FBAPT
 
@@ -113,6 +196,60 @@ if [ -f "$PROXMOXLIB" ]; then
 fi
 
 FBSUB
+
+    # --- SSH Hardening (only if keys were provided) ---
+    if [[ -n "$PVE_SSH_KEYS" ]]; then
+        # Write keys into the script as a heredoc
+        local escaped_keys
+        escaped_keys="$(echo "$PVE_SSH_KEYS" | sed 's/\\/\\\\/g')"
+
+        cat >> "$output_file" <<FBSSH
+# --- SSH Hardening ---
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+
+cat > /root/.ssh/authorized_keys <<'SSHKEYS_EOF'
+${escaped_keys}
+SSHKEYS_EOF
+chmod 600 /root/.ssh/authorized_keys
+
+# Proxmox cluster-synced authorized_keys (available after pmxcfs starts)
+if [ -d /etc/pve/priv ]; then
+    cp /root/.ssh/authorized_keys /etc/pve/priv/authorized_keys
+    echo "[\\$(date)] SSH keys installed to /etc/pve/priv/authorized_keys (cluster-synced)"
+fi
+
+# Drop-in config -- does not modify the main sshd_config
+cat > /etc/ssh/sshd_config.d/99-hardening.conf <<'SSHD_EOF'
+# Proxmox-safe SSH hardening (cluster-compatible)
+# PermitRootLogin must be prohibit-password, NOT no (breaks clustering)
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+PubkeyAuthentication yes
+KbdInteractiveAuthentication no
+MaxAuthTries 3
+X11Forwarding no
+SSHD_EOF
+
+systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
+echo "[\\$(date)] SSH hardened: password login disabled, key-only access"
+
+FBSSH
+    else
+        cat >> "$output_file" <<'FBSSH_SKIP'
+# --- SSH Hardening SKIPPED ---
+# No SSH keys were provided during installation.
+# Password login remains enabled. To harden later:
+#   1. Add your public key to /root/.ssh/authorized_keys
+#   2. Copy to /etc/pve/priv/authorized_keys (for cluster sync)
+#   3. Create /etc/ssh/sshd_config.d/99-hardening.conf with:
+#        PermitRootLogin prohibit-password
+#        PasswordAuthentication no
+#   4. systemctl restart sshd
+echo "[$(date)] SSH hardening skipped (no keys provided)"
+
+FBSSH_SKIP
+    fi
 
     cat >> "$output_file" <<'FBDONE'
 echo "[$(date)] First-boot configuration complete!"
