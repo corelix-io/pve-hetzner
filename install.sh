@@ -31,7 +31,7 @@ if [[ -z "$TAG" ]]; then
     echo "  ERROR: Could not determine latest release. Using main branch fallback."
     TAG="main"
     BUNDLE_URL="https://github.com/${REPO}/archive/refs/heads/main.tar.gz"
-    BUNDLE_DIR="proxmox-hetzner-main"
+    BUNDLE_DIR="pve-hetzner-main"
 else
     echo "  Latest version: ${TAG}"
     BUNDLE="pve-hetzner-${TAG}"
@@ -57,4 +57,7 @@ echo "  Starting installer..."
 echo ""
 
 cd "${BUNDLE_DIR}"
-exec bash pve-install.sh "$@"
+
+# Reconnect stdin to the terminal so interactive prompts work
+# (when invoked via 'curl | bash', stdin is the pipe, not the terminal)
+exec bash pve-install.sh "$@" </dev/tty
