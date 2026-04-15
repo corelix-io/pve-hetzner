@@ -101,7 +101,9 @@ answer_show_summary() {
     ui_kv "Filesystem" "$PVE_FILESYSTEM"
     if [[ "$PVE_FILESYSTEM" == "zfs" ]]; then
         ui_kv "ZFS RAID" "$PVE_ZFS_RAID"
-        [[ -n "$PVE_ZFS_COMPRESS" ]] && ui_kv "ZFS Compress" "$PVE_ZFS_COMPRESS"
+        if [[ -n "$PVE_ZFS_COMPRESS" ]]; then
+            ui_kv "ZFS Compress" "$PVE_ZFS_COMPRESS"
+        fi
     fi
     ui_kv "Disks" "${SELECTED_DISKS[*]}"
     ui_kv "Network Mode" "$PVE_NETWORK_MODE"
@@ -109,5 +111,7 @@ answer_show_summary() {
     ui_kv "Private Subnet" "${PVE_PRIVATE_SUBNET:-none}"
     ui_kv "Boot Mode" "$PVE_BOOT_MODE"
     ui_kv "Interface" "${PVE_PREDICTED_IFACE:-${PVE_INTERFACE}}"
-    [[ -n "$PVE_SSH_KEYS" ]] && ui_kv "SSH Keys" "configured"
+    if [[ -n "$PVE_SSH_KEYS" ]]; then
+        ui_kv "SSH Keys" "configured"
+    fi
 }

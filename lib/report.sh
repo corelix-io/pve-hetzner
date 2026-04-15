@@ -58,8 +58,12 @@ _report_render() {
     ui_box_kv "Interface" "$iface"
     ui_box_kv "Public IP" "$public_ip"
     ui_box_kv "Gateway" "$gateway"
-    [[ -n "$PVE_IPV6_CIDR" ]] && ui_box_kv "IPv6" "$PVE_IPV6_CIDR"
-    [[ -n "$PVE_PRIVATE_IP_CIDR" ]] && ui_box_kv "Private Bridge" "${PVE_PRIVATE_IP_CIDR} (vmbr1)"
+    if [[ -n "$PVE_IPV6_CIDR" ]]; then
+        ui_box_kv "IPv6" "$PVE_IPV6_CIDR"
+    fi
+    if [[ -n "$PVE_PRIVATE_IP_CIDR" ]]; then
+        ui_box_kv "Private Bridge" "${PVE_PRIVATE_IP_CIDR} (vmbr1)"
+    fi
 
     ui_box_row ""
     ui_box_row "$(echo -e "${CLR_BOLD}ACCESS${CLR_RESET}")"

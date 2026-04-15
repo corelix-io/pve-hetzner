@@ -213,7 +213,9 @@ config_interactive() {
     ui_kv "IPv4" "$PVE_MAIN_IPV4_CIDR"
     ui_kv "Gateway" "$PVE_MAIN_IPV4_GW"
     ui_kv "MAC" "$PVE_MAC_ADDRESS"
-    [[ -n "$PVE_IPV6_CIDR" ]] && ui_kv "IPv6" "$PVE_IPV6_CIDR"
+    if [[ -n "$PVE_IPV6_CIDR" ]]; then
+        ui_kv "IPv6" "$PVE_IPV6_CIDR"
+    fi
     echo ""
 
     if [[ -z "$PVE_HOSTNAME" ]]; then
