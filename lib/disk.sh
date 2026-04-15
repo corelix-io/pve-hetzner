@@ -108,6 +108,188 @@ disk_select() {
     ui_success "Selected ${#SELECTED_DISKS[@]} disk(s): ${SELECTED_DISKS[*]}"
 }
 
+# Get raw disk size in bytes for capacity calculations
+_disk_size_bytes() {
+    local disk="$1"
+    lsblk -bdno SIZE "/dev/${disk}" 2>/dev/null | head -1
+}
+
+# Format bytes to human-readable
+_disk_fmt_size() {
+    local bytes="$1"
+    if (( bytes >= 1099511627776 )); then
+        printf "%.1f TB" "$(echo "scale=1; $bytes / 1099511627776" | bc 2>/dev/null || echo "?")"
+    elif (( bytes >= 1073741824 )); then
+        printf "%.1f GB" "$(echo "scale=1; $bytes / 1073741824" | bc 2>/dev/null || echo "?")"
+    else
+        printf "%d MB" "$(( bytes / 1048576 ))"
+    fi
+}
+
+# Interactive RAID level selection with capacity and reliability info
+disk_select_raid() {
+    if [[ "$PVE_FILESYSTEM" != "zfs" ]]; then
+        return 0
+    fi
+
+    local num_disks=${#SELECTED_DISKS[@]}
+
+    # Get the size of the smallest disk (ZFS uses smallest as baseline)
+    local min_bytes=0
+    for disk in "${SELECTED_DISKS[@]}"; do
+        local sz
+        sz="$(_disk_size_bytes "$disk")"
+        if [[ "$min_bytes" -eq 0 ]] || [[ "$sz" -lt "$min_bytes" ]]; then
+            min_bytes="$sz"
+        fi
+    done
+
+    local single_size
+    single_size="$(_disk_fmt_size "$min_bytes")"
+
+    # If already set via CLI/config and valid, just validate and show
+    if [[ -n "$PVE_ZFS_RAID" ]] && [[ "${PVE_UNATTENDED:-false}" == true ]]; then
+        validate_disk_count_for_raid "$PVE_ZFS_RAID" "$num_disks"
+        ui_success "ZFS RAID: ${PVE_ZFS_RAID} (set via config)"
+        return 0
+    fi
+
+    echo ""
+    ui_section "ZFS RAID Level"
+    echo ""
+    echo -e "  ${CLR_DIM}You have ${CLR_RESET}${CLR_BOLD}${num_disks} disk(s)${CLR_RESET}${CLR_DIM} of ${single_size} each. Choose a RAID level:${CLR_RESET}"
+    echo ""
+
+    # Table header
+    printf "  ${CLR_BOLD}%-3s %-10s %-14s %-12s %-8s %s${CLR_RESET}\n" \
+        "#" "Level" "Usable Space" "Redundancy" "Min" "Description"
+    ui_hr 72
+
+    local -a options=()
+    local opt_num=0
+
+    # raid0
+    if (( num_disks >= 1 )); then
+        (( opt_num++ ))
+        local cap
+        cap="$(_disk_fmt_size $(( min_bytes * num_disks )) )"
+        printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_RED}%-12s${CLR_RESET} %-8s %s\n" \
+            "$opt_num" "raid0" "$cap" "NONE" "1 disk" "Striped, max speed. ANY disk failure = total data loss."
+        options+=("raid0")
+    fi
+
+    # raid1
+    if (( num_disks >= 2 )); then
+        (( opt_num++ ))
+        local cap
+        cap="$(_disk_fmt_size "$min_bytes")"
+        printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
+            "$opt_num" "raid1" "$cap" "1 disk" "2 disks" "Mirror. Survives 1 disk failure. RECOMMENDED."
+        options+=("raid1")
+    fi
+
+    # raid10
+    if (( num_disks >= 4 )); then
+        (( opt_num++ ))
+        local cap
+        cap="$(_disk_fmt_size $(( min_bytes * num_disks / 2 )) )"
+        printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
+            "$opt_num" "raid10" "$cap" "1 per pair" "4 disks" "Striped mirrors. Speed + redundancy."
+        options+=("raid10")
+    fi
+
+    # raidz-1
+    if (( num_disks >= 3 )); then
+        (( opt_num++ ))
+        local cap
+        cap="$(_disk_fmt_size $(( min_bytes * (num_disks - 1) )) )"
+        printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
+            "$opt_num" "raidz-1" "$cap" "1 disk" "3 disks" "Single parity. Good capacity/safety balance."
+        options+=("raidz-1")
+    fi
+
+    # raidz-2
+    if (( num_disks >= 4 )); then
+        (( opt_num++ ))
+        local cap
+        cap="$(_disk_fmt_size $(( min_bytes * (num_disks - 2) )) )"
+        printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
+            "$opt_num" "raidz-2" "$cap" "2 disks" "4 disks" "Double parity. Survives 2 simultaneous failures."
+        options+=("raidz-2")
+    fi
+
+    # raidz-3
+    if (( num_disks >= 5 )); then
+        (( opt_num++ ))
+        local cap
+        cap="$(_disk_fmt_size $(( min_bytes * (num_disks - 3) )) )"
+        printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
+            "$opt_num" "raidz-3" "$cap" "3 disks" "5 disks" "Triple parity. Maximum protection."
+        options+=("raidz-3")
+    fi
+
+    echo ""
+
+    # Determine default option (raid1 if 2 disks, else first available)
+    local default_num=1
+    for i in "${!options[@]}"; do
+        if [[ "${options[$i]}" == "raid1" ]]; then
+            default_num=$(( i + 1 ))
+            break
+        fi
+    done
+
+    if [[ ${#options[@]} -eq 1 ]]; then
+        PVE_ZFS_RAID="${options[0]}"
+        ui_success "Only one RAID level available: ${PVE_ZFS_RAID}"
+        return 0
+    fi
+
+    local choice=""
+    ui_read choice "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Select RAID level [1-${#options[@]}]: ")" "$default_num"
+
+    if [[ -z "$choice" ]]; then
+        choice="$default_num"
+    fi
+
+    # Accept either the number or the level name directly
+    if [[ "$choice" =~ ^[0-9]+$ ]]; then
+        local idx=$(( choice - 1 ))
+        if (( idx >= 0 && idx < ${#options[@]} )); then
+            PVE_ZFS_RAID="${options[$idx]}"
+        else
+            die "Invalid selection: ${choice}"
+        fi
+    else
+        # User typed the level name directly
+        local valid=false
+        for opt in "${options[@]}"; do
+            if [[ "$opt" == "$choice" ]]; then
+                PVE_ZFS_RAID="$choice"
+                valid=true
+                break
+            fi
+        done
+        if [[ "$valid" != true ]]; then
+            die "Invalid RAID level: ${choice}"
+        fi
+    fi
+
+    # Show what they picked
+    local picked_cap=""
+    case "$PVE_ZFS_RAID" in
+        raid0)   picked_cap="$(_disk_fmt_size $(( min_bytes * num_disks )) )" ;;
+        raid1)   picked_cap="$(_disk_fmt_size "$min_bytes")" ;;
+        raid10)  picked_cap="$(_disk_fmt_size $(( min_bytes * num_disks / 2 )) )" ;;
+        raidz-1) picked_cap="$(_disk_fmt_size $(( min_bytes * (num_disks - 1) )) )" ;;
+        raidz-2) picked_cap="$(_disk_fmt_size $(( min_bytes * (num_disks - 2) )) )" ;;
+        raidz-3) picked_cap="$(_disk_fmt_size $(( min_bytes * (num_disks - 3) )) )" ;;
+    esac
+
+    echo ""
+    ui_success "Selected ZFS ${PVE_ZFS_RAID} -- usable capacity: ~${picked_cap}"
+}
+
 disk_validate_raid() {
     if [[ "$PVE_FILESYSTEM" != "zfs" ]]; then
         return 0

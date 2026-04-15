@@ -105,6 +105,7 @@ main() {
 
     disk_detect
     disk_select
+    disk_select_raid
     disk_validate_raid
 
     # ============================================================
