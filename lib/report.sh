@@ -1,0 +1,141 @@
+# Final installation report generation
+# shellcheck shell=bash
+
+report_generate() {
+    local status="${1:-SUCCESS}"
+    local working_dir="${PVE_WORKING_DIR:-/root}"
+    local report_file="${working_dir}/logs/install-report.txt"
+    local elapsed
+    elapsed="$(log_elapsed)"
+
+    mkdir -p "$(dirname "$report_file")"
+
+    # Generate both terminal output and file
+    {
+        _report_render "$status" "$elapsed"
+    } | tee "$report_file"
+
+    log_info "Report saved to ${report_file}"
+}
+
+_report_render() {
+    local status="$1"
+    local elapsed="$2"
+
+    local status_color="$CLR_GREEN"
+    local status_icon="$CHECK_MARK"
+    if [[ "$status" != "SUCCESS" ]]; then
+        status_color="$CLR_RED"
+        status_icon="$CROSS_MARK"
+    fi
+
+    local disk_info
+    disk_info="$(disk_summary 2>/dev/null || echo "N/A")"
+
+    local iface="${PVE_PREDICTED_IFACE:-${PVE_INTERFACE:-unknown}}"
+    local public_ip="${PVE_MAIN_IPV4_CIDR:-unknown}"
+    local ip_bare="${PVE_MAIN_IPV4:-${public_ip%/*}}"
+    local gateway="${PVE_MAIN_IPV4_GW:-unknown}"
+
+    echo ""
+    ui_box_start "PROXMOX VE INSTALLATION REPORT"
+
+    ui_box_kv "Status" "$(echo -e "${status_color}${status_icon} ${status}${CLR_RESET}")"
+    ui_box_kv "Duration" "$elapsed"
+    ui_box_kv "Installer" "v${PVE_INSTALLER_VERSION}"
+
+    ui_box_row ""
+    ui_box_row "$(echo -e "${CLR_BOLD}SYSTEM${CLR_RESET}")"
+    ui_box_row "$(echo -e "  ${CLR_DIM}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${CLR_RESET}")"
+    ui_box_kv "Hostname" "${PVE_FQDN:-unknown}"
+    ui_box_kv "Boot Mode" "${PVE_BOOT_MODE:-unknown}"
+    ui_box_kv "Disks" "$disk_info"
+    ui_box_kv "Filesystem" "${PVE_FILESYSTEM:-unknown}"
+
+    ui_box_row ""
+    ui_box_row "$(echo -e "${CLR_BOLD}NETWORK${CLR_RESET}")"
+    ui_box_row "$(echo -e "  ${CLR_DIM}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${CLR_RESET}")"
+    ui_box_kv "Interface" "$iface"
+    ui_box_kv "Public IP" "$public_ip"
+    ui_box_kv "Gateway" "$gateway"
+    [[ -n "$PVE_IPV6_CIDR" ]] && ui_box_kv "IPv6" "$PVE_IPV6_CIDR"
+    [[ -n "$PVE_PRIVATE_IP_CIDR" ]] && ui_box_kv "Private Bridge" "${PVE_PRIVATE_IP_CIDR} (vmbr1)"
+
+    ui_box_row ""
+    ui_box_row "$(echo -e "${CLR_BOLD}ACCESS${CLR_RESET}")"
+    ui_box_row "$(echo -e "  ${CLR_DIM}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${CLR_RESET}")"
+    ui_box_kv "Web UI" "https://${ip_bare}:8006"
+    ui_box_kv "SSH" "ssh root@${ip_bare}"
+
+    ui_box_row ""
+    ui_box_row "$(echo -e "${CLR_BOLD}NEXT STEPS${CLR_RESET}")"
+    ui_box_row "$(echo -e "  ${CLR_DIM}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${CLR_RESET}")"
+    ui_box_row "  1. Reboot to exit rescue mode"
+    ui_box_row "  2. Access web UI and login as root"
+    ui_box_row "  3. Verify network: ip addr, ip route"
+    ui_box_row "  4. Check ZFS: zpool status"
+    ui_box_row "  5. Configure firewall rules"
+    ui_box_row "  6. Set up backup schedule"
+
+    if [[ -n "$LOG_FILE" ]]; then
+        ui_box_row ""
+        ui_box_kv "Log file" "$LOG_FILE"
+    fi
+
+    ui_box_row ""
+    ui_box_row "$(echo -e "  ${CLR_DIM}Provided freely by Corelix.io - Made in France${CLR_RESET}")"
+
+    ui_box_end
+}
+
+report_prompt_reboot() {
+    echo ""
+    if ui_confirm "Reboot into installed Proxmox now?"; then
+        ui_info "Rebooting in 5 seconds..."
+        ui_countdown 5 "Rebooting"
+        reboot
+    else
+        echo ""
+        ui_info "Reboot manually when ready: reboot"
+        echo ""
+    fi
+}
+
+# Generate a machine-readable JSON report
+report_generate_json() {
+    local status="${1:-SUCCESS}"
+    local working_dir="${PVE_WORKING_DIR:-/root}"
+    local json_file="${working_dir}/logs/install-report.json"
+    local elapsed_s
+    elapsed_s="$(log_elapsed_seconds)"
+
+    cat > "$json_file" <<JSON
+{
+    "status": "${status}",
+    "version": "${PVE_INSTALLER_VERSION}",
+    "elapsed_seconds": ${elapsed_s},
+    "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "system": {
+        "hostname": "${PVE_HOSTNAME}",
+        "fqdn": "${PVE_FQDN}",
+        "boot_mode": "${PVE_BOOT_MODE}",
+        "filesystem": "${PVE_FILESYSTEM}",
+        "disks": "${SELECTED_DISKS[*]}"
+    },
+    "network": {
+        "interface": "${PVE_PREDICTED_IFACE:-${PVE_INTERFACE}}",
+        "ipv4": "${PVE_MAIN_IPV4_CIDR}",
+        "gateway": "${PVE_MAIN_IPV4_GW}",
+        "ipv6": "${PVE_IPV6_CIDR}",
+        "mac": "${PVE_MAC_ADDRESS}",
+        "private_subnet": "${PVE_PRIVATE_SUBNET}"
+    },
+    "access": {
+        "web_ui": "https://${PVE_MAIN_IPV4}:8006",
+        "ssh": "ssh root@${PVE_MAIN_IPV4}"
+    }
+}
+JSON
+
+    log_info "JSON report saved to ${json_file}"
+}

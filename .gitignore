@@ -1,0 +1,29 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Runtime output
+logs/
+generated/
+
+# ISO files
+*.iso
+
+# QEMU artifacts
+qemu_output.log
+*.sock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+*.tmp
+*.bak
+
+# Sensitive
+*.key
+*.pem

@@ -1,0 +1,126 @@
+name: Build Release Bundle
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v2.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release bundle
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BUNDLE_NAME="pve-hetzner-${VERSION}"
+
+          mkdir -p "dist/${BUNDLE_NAME}"
+
+          # Copy all project files needed at runtime
+          cp pve-install.sh "dist/${BUNDLE_NAME}/"
+          cp -r lib/ "dist/${BUNDLE_NAME}/lib/"
+          cp -r templates/ "dist/${BUNDLE_NAME}/templates/"
+          cp -r configs/ "dist/${BUNDLE_NAME}/configs/"
+          cp LICENSE "dist/${BUNDLE_NAME}/"
+
+          # Stamp version into the bundle
+          sed -i "s/PVE_INSTALLER_VERSION=\".*\"/PVE_INSTALLER_VERSION=\"${VERSION#v}\"/" \
+              "dist/${BUNDLE_NAME}/lib/ui.sh"
+
+          # Make scripts executable
+          chmod +x "dist/${BUNDLE_NAME}/pve-install.sh"
+
+          # Create tarball
+          cd dist
+          tar czf "${BUNDLE_NAME}.tar.gz" "${BUNDLE_NAME}/"
+
+          # Create the self-extracting installer wrapper
+          cat > "../dist/install.sh" <<'INSTALLER'
+          #!/usr/bin/env bash
+          # Proxmox VE Hetzner Installer - Bootstrap
+          # Downloads and extracts the release bundle, then runs the installer.
+          # Usage: curl -4fsSL https://get.corelix.io/pve | bash
+          set -euo pipefail
+          INSTALLER
+
+          # Write the actual bootstrap content (not indented by heredoc)
+          cat > "../dist/install.sh" <<INSTALLER
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          REPO="corelix-io/pve-hetzner"
+          VERSION="${VERSION}"
+          BUNDLE="pve-hetzner-${VERSION}"
+          URL="https://github.com/\${REPO}/releases/download/${VERSION}/\${BUNDLE}.tar.gz"
+
+          echo ""
+          echo "  Proxmox VE Installer for Hetzner - by Corelix.io"
+          echo "  Downloading ${VERSION}..."
+          echo ""
+
+          cd /root
+          curl -4fsSL -o "\${BUNDLE}.tar.gz" "\${URL}" || {
+              echo "ERROR: Download failed. Check your network and try again."
+              exit 1
+          }
+          tar xzf "\${BUNDLE}.tar.gz"
+          cd "\${BUNDLE}"
+          exec bash pve-install.sh "\$@"
+          INSTALLER
+
+          chmod +x "../dist/install.sh"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Proxmox Hetzner Installer ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/pve-hetzner-${{ steps.version.outputs.version }}.tar.gz
+            dist/install.sh
+          body: |
+            ## Proxmox VE Installer for Hetzner ${{ steps.version.outputs.version }}
+
+            ### Quick Install (one-liner)
+            ```bash
+            curl -4fsSL https://github.com/corelix-io/pve-hetzner/releases/latest/download/install.sh | bash
+            ```
+
+            ### Manual Download
+            ```bash
+            wget -4 https://github.com/corelix-io/pve-hetzner/releases/download/${{ steps.version.outputs.version }}/pve-hetzner-${{ steps.version.outputs.version }}.tar.gz
+            tar xzf pve-hetzner-*.tar.gz
+            cd pve-hetzner-*/
+            ./pve-install.sh
+            ```
+
+            ### What's included
+            - All installer scripts and library modules
+            - Configuration templates
+            - Example configuration files
+            - No runtime downloads required (except the Proxmox ISO itself)
+
+            ---
+            *Provided freely by [Corelix.io](https://corelix.io) - Made in France*
