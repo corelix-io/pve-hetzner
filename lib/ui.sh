@@ -124,12 +124,50 @@ ui_section() {
     ui_hr 58
 }
 
+# Safe read wrapper: handles set -e, pipe stdin, and /dev/tty fallback.
+# Usage: ui_read VARNAME "prompt" "default" ["-s" for silent]
+# Stores result in the named variable. Returns 0 always.
+ui_read() {
+    local _var_name="$1"
+    local _prompt="$2"
+    local _default="${3:-}"
+    local _silent="${4:-}"
+    local _result=""
+
+    # If stdin is not a terminal (piped), use default immediately
+    if [[ ! -t 0 ]] && [[ ! -e /dev/tty ]]; then
+        printf -v "$_var_name" '%s' "$_default"
+        return 0
+    fi
+
+    local -a _read_args=(-r)
+    [[ -n "$_default" ]] && _read_args+=(-e -i "$_default")
+    [[ "$_silent" == "-s" ]] && _read_args+=(-s)
+
+    # Try reading from /dev/tty first (works even when stdin is a pipe),
+    # fall back to stdin, and ultimately fall back to the default value.
+    if [[ -e /dev/tty ]]; then
+        read "${_read_args[@]}" -p "$_prompt" _result </dev/tty 2>/dev/null || _result="$_default"
+    else
+        read "${_read_args[@]}" -p "$_prompt" _result 2>/dev/null || _result="$_default"
+    fi
+
+    [[ "$_silent" == "-s" ]] && echo ""
+    printf -v "$_var_name" '%s' "${_result:-$_default}"
+    return 0
+}
+
 # Confirmation prompt (returns 0 for yes, 1 for no)
 ui_confirm() {
     local prompt="${1:-Continue?}"
     local default="${2:-y}"
 
-    if [[ "${PVE_UNATTENDED:-false}" == true ]]; then
+    if [[ "${PVE_UNATTENDED:-false}" == true ]] || [[ "${PVE_SKIP_CONFIRM:-false}" == true ]]; then
+        return 0
+    fi
+
+    # If no terminal available, accept default
+    if [[ ! -t 0 ]] && [[ ! -e /dev/tty ]]; then
         return 0
     fi
 
@@ -140,9 +178,8 @@ ui_confirm() {
         yn_hint="[y/N]"
     fi
 
-    local answer
-    read -r -p "$(echo -e "  ${CLR_YELLOW}?${CLR_RESET} ${prompt} ${yn_hint} ")" answer
-    answer="${answer:-$default}"
+    local answer=""
+    ui_read answer "$(echo -e "  ${CLR_YELLOW}?${CLR_RESET} ${prompt} ${yn_hint} ")" "$default"
 
     [[ "${answer,,}" == "y" || "${answer,,}" == "yes" ]]
 }

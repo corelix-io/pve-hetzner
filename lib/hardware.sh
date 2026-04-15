@@ -9,16 +9,40 @@ hw_check_root() {
 }
 
 hw_check_rescue() {
+    # Hetzner rescue indicators (check multiple -- they vary across versions)
     if [[ -f /etc/hetzner-rescue ]]; then
         ui_success "Hetzner Rescue System detected"
         return 0
     fi
 
-    # Fallback: check if running from tmpfs root
+    if command -v installimage &>/dev/null; then
+        ui_success "Hetzner Rescue System detected (installimage found)"
+        return 0
+    fi
+
+    if [[ -f /etc/motd ]] && grep -qi 'hetzner\|rescue' /etc/motd 2>/dev/null; then
+        ui_success "Hetzner Rescue System detected (motd)"
+        return 0
+    fi
+
+    if grep -qi 'hetzner' /etc/resolv.conf 2>/dev/null; then
+        ui_success "Hetzner Rescue System detected (DNS)"
+        return 0
+    fi
+
+    # Fallback: check if running from tmpfs/nfs root (common for rescue)
     local root_fs
     root_fs="$(df / 2>/dev/null | tail -1 | awk '{print $1}')"
-    if [[ "$root_fs" == "tmpfs" ]] || [[ "$root_fs" == "rootfs" ]]; then
-        ui_success "RAM-based root filesystem detected (likely rescue)"
+    if [[ "$root_fs" == "tmpfs" ]] || [[ "$root_fs" == "rootfs" ]] || [[ "$root_fs" == *"nfs"* ]]; then
+        ui_success "RAM/NFS-based root filesystem detected (likely rescue)"
+        return 0
+    fi
+
+    # Check for common rescue hostname patterns
+    local hn
+    hn="$(hostname 2>/dev/null || true)"
+    if [[ "$hn" == *"rescue"* ]] || [[ "$hn" == *"hetzner"* ]]; then
+        ui_success "Hetzner Rescue System detected (hostname)"
         return 0
     fi
 

@@ -44,11 +44,9 @@ disk_select() {
     SELECTED_DISKS=()
 
     if [[ -n "$PVE_DISKS" ]]; then
-        # User specified disks via CLI/config
         IFS=',' read -ra user_disks <<< "$PVE_DISKS"
         for ud in "${user_disks[@]}"; do
             ud="$(echo "$ud" | xargs)"
-            # Validate disk exists
             local found=false
             for entry in "${DETECTED_DISKS[@]}"; do
                 local d_name
@@ -67,8 +65,8 @@ disk_select() {
         return 0
     fi
 
-    if [[ "$PVE_DISK_MODE" == "auto" ]] || [[ "$PVE_UNATTENDED" == true ]]; then
-        # Auto-select: use all detected disks
+    # Auto-select when unattended, auto mode, or stdin is not a terminal
+    if [[ "$PVE_DISK_MODE" == "auto" ]] || [[ "${PVE_UNATTENDED:-false}" == true ]] || [[ ! -t 0 ]]; then
         for entry in "${DETECTED_DISKS[@]}"; do
             local d_name
             d_name="$(echo "$entry" | cut -d'|' -f1)"
@@ -78,13 +76,13 @@ disk_select() {
         return 0
     fi
 
-    # Interactive disk selection
+    # Interactive disk selection (only when terminal is available)
     echo ""
     ui_info "Select disks for installation (space-separated numbers, or 'all'):"
-    local answer
-    read -r -e -p "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Disks: ")" -i "all" answer
+    local answer=""
+    ui_read answer "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Disks: ")" "all"
 
-    if [[ "$answer" == "all" ]]; then
+    if [[ -z "$answer" ]] || [[ "$answer" == "all" ]]; then
         for entry in "${DETECTED_DISKS[@]}"; do
             local d_name
             d_name="$(echo "$entry" | cut -d'|' -f1)"

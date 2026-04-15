@@ -12,7 +12,7 @@ declare -g PVE_ROOT_PASSWORD=""
 declare -g PVE_SSH_KEYS=""
 declare -g PVE_PRIVATE_SUBNET=""
 declare -g PVE_INTERFACE=""
-declare -g PVE_DISK_MODE=""        # auto, manual
+declare -g PVE_DISK_MODE="auto"    # auto, manual
 declare -g PVE_DISKS=""            # comma-separated list
 declare -g PVE_FILESYSTEM="zfs"
 declare -g PVE_ZFS_RAID="raid1"
@@ -22,7 +22,7 @@ declare -g PVE_ZFS_ARC_MAX=""
 declare -g PVE_KEYBOARD="en-us"
 declare -g PVE_COUNTRY="us"
 declare -g PVE_ISO_PATH=""
-declare -g PVE_BOOT_MODE=""        # auto, uefi, legacy
+declare -g PVE_BOOT_MODE="auto"    # auto, uefi, legacy
 declare -g PVE_DNS_SERVERS="185.12.64.1 185.12.64.2"
 declare -g PVE_UNATTENDED=false
 declare -g PVE_CONFIG_FILE=""
@@ -202,7 +202,7 @@ config_interactive() {
         default_iface="$(net_get_active_interface 2>/dev/null || echo "eth0")"
         local iface_list
         iface_list="$(net_list_interfaces_display 2>/dev/null || echo "eth0")"
-        read -r -e -p "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Network interface (${iface_list}): ")" -i "$default_iface" PVE_INTERFACE
+        ui_read PVE_INTERFACE "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Network interface (${iface_list}): ")" "$default_iface"
     fi
 
     net_extract_info "$PVE_INTERFACE"
@@ -217,28 +217,27 @@ config_interactive() {
     echo ""
 
     if [[ -z "$PVE_HOSTNAME" ]]; then
-        read -r -e -p "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Hostname: ")" -i "proxmox" PVE_HOSTNAME
+        ui_read PVE_HOSTNAME "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Hostname: ")" "proxmox"
     fi
 
     if [[ -z "$PVE_FQDN" ]]; then
-        read -r -e -p "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} FQDN: ")" -i "${PVE_HOSTNAME}.example.com" PVE_FQDN
+        ui_read PVE_FQDN "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} FQDN: ")" "${PVE_HOSTNAME}.example.com"
     fi
 
     if [[ -z "$PVE_TIMEZONE" ]]; then
-        read -r -e -p "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Timezone: ")" -i "UTC" PVE_TIMEZONE
+        ui_read PVE_TIMEZONE "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Timezone: ")" "UTC"
     fi
 
     if [[ -z "$PVE_EMAIL" ]]; then
-        read -r -e -p "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Admin email: ")" -i "admin@example.com" PVE_EMAIL
+        ui_read PVE_EMAIL "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Admin email: ")" "admin@example.com"
     fi
 
     if [[ -z "$PVE_PRIVATE_SUBNET" ]]; then
-        read -r -e -p "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Private subnet: ")" -i "192.168.26.0/24" PVE_PRIVATE_SUBNET
+        ui_read PVE_PRIVATE_SUBNET "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Private subnet: ")" "192.168.26.0/24"
     fi
 
     while [[ -z "$PVE_ROOT_PASSWORD" ]]; do
-        read -r -s -p "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Root password: ")" PVE_ROOT_PASSWORD
-        echo ""
+        ui_read PVE_ROOT_PASSWORD "$(echo -e "  ${CLR_CYAN}?${CLR_RESET} Root password: ")" "" "-s"
         if [[ -z "$PVE_ROOT_PASSWORD" ]]; then
             ui_warn "Password cannot be empty"
         fi
