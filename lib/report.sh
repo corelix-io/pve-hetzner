@@ -101,7 +101,9 @@ _report_render() {
     ui_box_row ""
     ui_box_row "$(echo -e "${CLR_BOLD}NEXT STEPS${CLR_RESET}")"
     ui_box_row "$(echo -e "  ${CLR_DIM}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${BOX_H}${CLR_RESET}")"
-    ui_box_row "  1. Reboot to exit rescue mode"
+    ui_box_row "$(echo -e "  1. ${CLR_YELLOW}Reboot via Hetzner Robot Panel:${CLR_RESET}")"
+    ui_box_row "     robot.hetzner.com > Server > Reset"
+    ui_box_row "     (shell 'reboot' may loop back to rescue)"
     ui_box_row "  2. Configure Hetzner firewall (see above)"
     ui_box_row "  3. Access web UI and login as root"
     ui_box_row "  4. Verify: ip addr, zpool status"
@@ -121,13 +123,22 @@ _report_render() {
 
 report_prompt_reboot() {
     echo ""
-    if ui_confirm "Reboot into installed Proxmox now?"; then
+    echo -e "  ${CLR_YELLOW}${CLR_BOLD}How to reboot into Proxmox:${CLR_RESET}"
+    echo ""
+    echo -e "  ${CLR_WHITE}Option A (recommended):${CLR_RESET} Use Hetzner Robot Panel"
+    echo -e "    ${CLR_DIM}Go to robot.hetzner.com > Server > Reset tab${CLR_RESET}"
+    echo -e "    ${CLR_DIM}Select 'Execute an automatic hardware reset' and click Send${CLR_RESET}"
+    echo ""
+    echo -e "  ${CLR_WHITE}Option B:${CLR_RESET} Try shell reboot (may not work in rescue)"
+    echo ""
+
+    if ui_confirm "Attempt shell reboot now?" "n"; then
         ui_info "Rebooting in 5 seconds..."
         ui_countdown 5 "Rebooting"
         reboot
     else
         echo ""
-        ui_info "Reboot manually when ready: reboot"
+        ui_info "Reboot via Hetzner Robot Panel when ready."
         echo ""
     fi
 }
