@@ -9,11 +9,15 @@ declare -g QEMU_CONFIG_LOG=""
 readonly QEMU_INSTALL_TIMEOUT=1200   # 20 minutes max for install
 readonly QEMU_BOOT_TIMEOUT=300       # 5 minutes for SSH to come up
 
-# Build the QEMU command for the install phase
-qemu_build_install_cmd() {
+# Run the installation QEMU with progress monitoring
+qemu_run_install() {
     local working_dir="${PVE_WORKING_DIR:-/root}"
     local iso_file="${working_dir}/pve-autoinstall.iso"
     local log_dir="${working_dir}/logs"
+
+    if [[ ! -f "$iso_file" ]]; then
+        die "Auto-install ISO not found: ${iso_file}"
+    fi
 
     mkdir -p "$log_dir"
 
@@ -21,8 +25,8 @@ qemu_build_install_cmd() {
     QEMU_MONITOR_SOCK="/tmp/qemu-monitor-$$.sock"
 
     cleanup_register_monitor "$QEMU_MONITOR_SOCK"
-    cleanup_register_temp "$QEMU_SERIAL_LOG"
 
+    # Build QEMU command
     local -a cmd=(
         qemu-system-x86_64
         -enable-kvm
@@ -33,49 +37,26 @@ qemu_build_install_cmd() {
         -cdrom "$iso_file"
     )
 
-    # Add UEFI firmware if needed
     local fw
     fw="$(hw_get_uefi_firmware)"
     if [[ -n "$fw" ]]; then
         cmd+=(-bios "$fw")
     fi
 
-    # Add disk drives
     local disk_args
     disk_args="$(disk_build_qemu_args)"
-    # Word splitting is intentional here for the individual arguments
     # shellcheck disable=SC2206
     cmd+=($disk_args)
 
-    # Serial console for observability
     cmd+=(-serial "file:${QEMU_SERIAL_LOG}")
-
-    # Monitor socket for programmatic control
     cmd+=(-monitor "unix:${QEMU_MONITOR_SOCK},server,nowait")
-
-    # No reboot after install, no display
     cmd+=(-no-reboot -display none)
 
-    echo "${cmd[@]}"
-}
-
-# Run the installation QEMU with progress monitoring
-qemu_run_install() {
-    local working_dir="${PVE_WORKING_DIR:-/root}"
-    local iso_file="${working_dir}/pve-autoinstall.iso"
-
-    if [[ ! -f "$iso_file" ]]; then
-        die "Auto-install ISO not found: ${iso_file}"
-    fi
-
-    local cmd
-    cmd="$(qemu_build_install_cmd)"
-
     log_info "Starting QEMU installation..."
-    log_debug "QEMU command: ${cmd}"
+    log_debug "QEMU command: ${cmd[*]}"
 
     # Launch QEMU in background
-    eval "$cmd" &
+    "${cmd[@]}" &
     QEMU_PID=$!
     cleanup_register_qemu "$QEMU_PID"
 
@@ -196,14 +177,16 @@ qemu_monitor_install() {
     fi
 }
 
-# Build QEMU command for the config phase (SSH port forwarding)
-qemu_build_config_cmd() {
+# Boot for SSH-based configuration (legacy fallback)
+qemu_run_config() {
     local working_dir="${PVE_WORKING_DIR:-/root}"
     local log_dir="${working_dir}/logs"
 
     mkdir -p "$log_dir"
 
     QEMU_CONFIG_LOG="${log_dir}/qemu-config.log"
+
+    log_info "Booting Proxmox for post-install configuration..."
 
     local -a cmd=(
         qemu-system-x86_64
@@ -228,19 +211,9 @@ qemu_build_config_cmd() {
 
     cmd+=(-display none)
 
-    echo "${cmd[@]}"
-}
+    log_debug "QEMU config command: ${cmd[*]}"
 
-# Boot for SSH-based configuration (legacy fallback)
-qemu_run_config() {
-    log_info "Booting Proxmox for post-install configuration..."
-
-    local cmd
-    cmd="$(qemu_build_config_cmd)"
-
-    log_debug "QEMU config command: ${cmd}"
-
-    eval "nohup ${cmd} > '${QEMU_CONFIG_LOG}' 2>&1 &"
+    nohup "${cmd[@]}" > "${QEMU_CONFIG_LOG}" 2>&1 &
     QEMU_PID=$!
     cleanup_register_qemu "$QEMU_PID"
 
