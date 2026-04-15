@@ -150,7 +150,7 @@ sshcfg_shutdown() {
         while kill -0 "$QEMU_PID" 2>/dev/null && (( waited < 60 )); do
             printf "\r  ${CLR_DIM}Waiting for VM shutdown... %ds${CLR_RESET}" "$waited"
             sleep 2
-            (( waited += 2 ))
+            waited=$(( waited + 2 ))
         done
         printf "\r\033[K"
 

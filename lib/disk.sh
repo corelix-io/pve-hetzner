@@ -177,66 +177,66 @@ disk_select_raid() {
     ui_hr 72
 
     local -a options=()
-    local opt_num=0
+    local opt_num=1
 
     # raid0
     if (( num_disks >= 1 )); then
-        (( opt_num++ ))
         local cap
         cap="$(_disk_fmt_size $(( min_bytes * num_disks )) )"
         printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_RED}%-12s${CLR_RESET} %-8s %s\n" \
             "$opt_num" "raid0" "$cap" "NONE" "1 disk" "Striped, max speed. ANY disk failure = total data loss."
         options+=("raid0")
+        opt_num=$(( opt_num + 1 ))
     fi
 
     # raid1
     if (( num_disks >= 2 )); then
-        (( opt_num++ ))
         local cap
         cap="$(_disk_fmt_size "$min_bytes")"
         printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
             "$opt_num" "raid1" "$cap" "1 disk" "2 disks" "Mirror. Survives 1 disk failure. RECOMMENDED."
         options+=("raid1")
+        opt_num=$(( opt_num + 1 ))
     fi
 
     # raid10
     if (( num_disks >= 4 )); then
-        (( opt_num++ ))
         local cap
         cap="$(_disk_fmt_size $(( min_bytes * num_disks / 2 )) )"
         printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
             "$opt_num" "raid10" "$cap" "1 per pair" "4 disks" "Striped mirrors. Speed + redundancy."
         options+=("raid10")
+        opt_num=$(( opt_num + 1 ))
     fi
 
     # raidz-1
     if (( num_disks >= 3 )); then
-        (( opt_num++ ))
         local cap
         cap="$(_disk_fmt_size $(( min_bytes * (num_disks - 1) )) )"
         printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
             "$opt_num" "raidz-1" "$cap" "1 disk" "3 disks" "Single parity. Good capacity/safety balance."
         options+=("raidz-1")
+        opt_num=$(( opt_num + 1 ))
     fi
 
     # raidz-2
     if (( num_disks >= 4 )); then
-        (( opt_num++ ))
         local cap
         cap="$(_disk_fmt_size $(( min_bytes * (num_disks - 2) )) )"
         printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
             "$opt_num" "raidz-2" "$cap" "2 disks" "4 disks" "Double parity. Survives 2 simultaneous failures."
         options+=("raidz-2")
+        opt_num=$(( opt_num + 1 ))
     fi
 
     # raidz-3
     if (( num_disks >= 5 )); then
-        (( opt_num++ ))
         local cap
         cap="$(_disk_fmt_size $(( min_bytes * (num_disks - 3) )) )"
         printf "  ${CLR_YELLOW}%-3s${CLR_RESET} %-10s %-14s ${CLR_GREEN}%-12s${CLR_RESET} %-8s %s\n" \
             "$opt_num" "raidz-3" "$cap" "3 disks" "5 disks" "Triple parity. Maximum protection."
         options+=("raidz-3")
+        opt_num=$(( opt_num + 1 ))
     fi
 
     echo ""
@@ -326,7 +326,7 @@ disk_build_answer_list() {
     for _ in "${SELECTED_DISKS[@]}"; do
         local letter="${letters:$idx:1}"
         virt_names+=("\"vd${letter}\"")
-        (( idx++ ))
+        idx=$(( idx + 1 ))
     done
 
     local IFS=','

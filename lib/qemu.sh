@@ -276,7 +276,7 @@ qemu_shutdown_guest() {
     local waited=0
     while kill -0 "$QEMU_PID" 2>/dev/null && (( waited < 30 )); do
         sleep 1
-        (( waited++ ))
+        waited=$(( waited + 1 ))
     done
 
     if kill -0 "$QEMU_PID" 2>/dev/null; then
