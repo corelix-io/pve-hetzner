@@ -111,18 +111,28 @@ disk_select() {
 # Get raw disk size in bytes for capacity calculations
 _disk_size_bytes() {
     local disk="$1"
-    lsblk -bdno SIZE "/dev/${disk}" 2>/dev/null | head -1
+    lsblk -bdno SIZE "/dev/${disk}" 2>/dev/null | head -1 | tr -d ' '
 }
 
-# Format bytes to human-readable
+# Format bytes to human-readable using pure bash integer math
 _disk_fmt_size() {
-    local bytes="$1"
-    if (( bytes >= 1099511627776 )); then
-        printf "%.1f TB" "$(echo "scale=1; $bytes / 1099511627776" | bc 2>/dev/null || echo "?")"
-    elif (( bytes >= 1073741824 )); then
-        printf "%.1f GB" "$(echo "scale=1; $bytes / 1073741824" | bc 2>/dev/null || echo "?")"
+    local bytes="${1:-0}"
+    # Guard against empty or non-numeric input
+    if [[ -z "$bytes" ]] || [[ ! "$bytes" =~ ^[0-9]+$ ]]; then
+        echo "? GB"
+        return 0
+    fi
+
+    local gb=$(( bytes / 1073741824 ))
+    if (( gb >= 1024 )); then
+        local tb_whole=$(( gb / 1024 ))
+        local tb_frac=$(( (gb % 1024) * 10 / 1024 ))
+        echo "${tb_whole}.${tb_frac} TB"
+    elif (( gb > 0 )); then
+        echo "${gb} GB"
     else
-        printf "%d MB" "$(( bytes / 1048576 ))"
+        local mb=$(( bytes / 1048576 ))
+        echo "${mb} MB"
     fi
 }
 
@@ -139,7 +149,8 @@ disk_select_raid() {
     for disk in "${SELECTED_DISKS[@]}"; do
         local sz
         sz="$(_disk_size_bytes "$disk")"
-        if [[ "$min_bytes" -eq 0 ]] || [[ "$sz" -lt "$min_bytes" ]]; then
+        sz="${sz:-0}"
+        if (( min_bytes == 0 )) || (( sz > 0 && sz < min_bytes )); then
             min_bytes="$sz"
         fi
     done
