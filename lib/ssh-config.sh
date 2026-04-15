@@ -106,11 +106,15 @@ sshcfg_upload_files() {
 sshcfg_run_commands() {
     ui_spinner_start "Applying remote configuration"
 
-    # Disable all enterprise repos (PVE + Ceph)
-    _sshcfg_ssh 'for f in /etc/apt/sources.list.d/pve-enterprise.list /etc/apt/sources.list.d/ceph.list; do \
+    # Disable all enterprise repos (PVE + Ceph, both .list and .sources formats)
+    _sshcfg_ssh 'for f in /etc/apt/sources.list.d/pve-enterprise.list \
+        /etc/apt/sources.list.d/pve-enterprise.sources \
+        /etc/apt/sources.list.d/ceph.list \
+        /etc/apt/sources.list.d/ceph.sources; do \
         [ -f "$f" ] && mv "$f" "${f}.disabled"; done; \
-        for f in /etc/apt/sources.list.d/*enterprise*.sources /etc/apt/sources.list.d/*enterprise*.list; do \
-        [ -f "$f" ] && [ "${f}" = "${f%.disabled}" ] && mv "$f" "${f}.disabled"; done' \
+        for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
+        [ -f "$f" ] && grep -q "enterprise.proxmox.com" "$f" 2>/dev/null && \
+        mv "$f" "${f}.disabled"; done' \
         2>/dev/null || true
 
     # Add no-subscription repos

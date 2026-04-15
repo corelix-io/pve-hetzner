@@ -141,19 +141,24 @@ FBCONNTRACK
 
     cat >> "$output_file" <<FBAPT
 # --- APT Sources ---
-# Disable ALL enterprise repos (require paid subscription)
+# Disable ALL enterprise repos (require paid subscription).
+# Proxmox uses various filenames across versions:
+#   pve-enterprise.list, ceph.list          (legacy .list format)
+#   pve-enterprise.sources, ceph.sources    (DEB822 .sources format)
+# Also catch any file containing enterprise.proxmox.com
 for f in /etc/apt/sources.list.d/pve-enterprise.list \
-         /etc/apt/sources.list.d/ceph.list; do
+         /etc/apt/sources.list.d/pve-enterprise.sources \
+         /etc/apt/sources.list.d/ceph.list \
+         /etc/apt/sources.list.d/ceph.sources; do
     if [ -f "\$f" ]; then
         mv "\$f" "\${f}.disabled"
         echo "[\$(date)] Disabled enterprise repo: \$f"
     fi
 done
 
-# Also handle .sources format (DEB822) enterprise files
-for f in /etc/apt/sources.list.d/*enterprise*.sources \
-         /etc/apt/sources.list.d/*enterprise*.list; do
-    if [ -f "\$f" ] && [ "\${f}" = "\${f%.disabled}" ]; then
+# Catch any remaining files that reference enterprise.proxmox.com
+for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    if [ -f "\$f" ] && grep -q 'enterprise.proxmox.com' "\$f" 2>/dev/null; then
         mv "\$f" "\${f}.disabled"
         echo "[\$(date)] Disabled enterprise repo: \$f"
     fi
