@@ -86,6 +86,25 @@ echo "[$(date)] Sysctl configured"
 
 FBSYSCTL
 
+    cat >> "$output_file" <<'FBIPV4'
+# --- IPv4 Preference (Hetzner IPv6 routing can be unreliable) ---
+# Make DNS resolution prefer IPv4 over IPv6 system-wide.
+# This prevents timeouts when IPv6 is configured but routing is broken.
+if [ -f /etc/gai.conf ]; then
+    if ! grep -q '^precedence ::ffff:0:0/96  100' /etc/gai.conf; then
+        echo 'precedence ::ffff:0:0/96  100' >> /etc/gai.conf
+    fi
+else
+    echo 'precedence ::ffff:0:0/96  100' > /etc/gai.conf
+fi
+
+# Force apt to use IPv4 (persistent, survives reboots)
+echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
+
+echo "[$(date)] IPv4 preference configured (gai.conf + apt)"
+
+FBIPV4
+
     # --- Performance & Reliability Tuning ---
     cat >> "$output_file" <<'FBPERF'
 # --- TCP BBR Congestion Control ---
